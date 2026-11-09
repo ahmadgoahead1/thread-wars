@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Thread Wars · host screen</title>
+<link rel="icon" href="data:,"/>
+<link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="host">
+  <div class="halftone tr" aria-hidden="true"></div>
+  <div class="halftone bl" aria-hidden="true"></div>
+  <header class="h-top">
+    <div class="h-brand"><div class="logo" aria-label="UNIQLO">UNI<br>QLO</div><span class="bar" aria-hidden="true"></span>
+      <div><div class="game">Thread Wars</div><div class="sub">How far does one T-shirt travel?</div></div></div>
+    <div class="h-right"><span class="chip" id="roomChip"></span><div class="pips" id="pips" aria-label="Round progress"></div></div>
+  </header>
+  <main class="h-main">
+    <section class="h-left" id="left" aria-live="polite"></section>
+    <section class="h-stage" id="stage"></section>
+  </main>
+  <footer class="h-foot"><span>Press <span class="kbd">Space</span> to move on</span><span class="stitch" aria-hidden="true"></span>
+    <div class="snd" id="snd"><span class="snd-hint" id="sndHint">Click anywhere to turn on the music</span>
+      <button class="btn ghost small" id="sndBtn" aria-pressed="true">Sound on</button>
+      <input type="range" id="sndVol" min="0" max="100" aria-label="Volume"/></div>
+    <button class="btn ghost small" id="modeBtn"></button></footer>
+</div>
+<script src="lib/peerjs.min.js"></script>
+<script src="lib/qrcode.js"></script>
+<script src="audio.js"></script>
+<script src="content.js"></script>
+<script src="ui.js"></script>
+<script src="host.js"></script>
+</body>
+</html>
