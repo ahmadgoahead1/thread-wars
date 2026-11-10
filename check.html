@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<meta name="theme-color" content="#E93424"/>
+<link rel="icon" href="data:,"/>
+<title>Thread Wars · network check</title>
+<link rel="stylesheet" href="style.css"/>
+<style>
+  .ck{list-style:none;padding:0;margin:16px 0;display:grid;gap:8px}
+  .ck li{display:grid;grid-template-columns:28px 1fr;gap:10px;align-items:start;padding:10px 12px;border:2px solid var(--line);border-radius:10px;font-size:15px;line-height:1.4}
+  .ck b{display:block}
+  .ck small{color:var(--stone)}
+  .st{width:24px;height:24px;border-radius:50%;background:var(--mist);display:grid;place-items:center;font-weight:700;color:#fff;font-size:14px}
+  .ok .st{background:#2E7D5B}.bad .st{background:var(--red)}.run .st{background:var(--stone)}
+  .verdict{padding:14px;border-radius:10px;background:var(--red-tint);font-size:15px;line-height:1.5}
+</style>
+</head>
+<body>
+<div class="phone">
+  <header class="p-top"><div class="logo" aria-label="UNIQLO">UNI<br>QLO</div><div class="game">Network check</div></header>
+  <main class="p-body">
+    <p class="p-text">Open this page on a phone connected to the network you will use in class. It takes about 20 seconds. Then send a screenshot of the result.</p>
+    <button class="btn" id="go">Run the check</button>
+    <ul class="ck" id="list"></ul>
+    <div class="verdict hidden" id="verdict" aria-live="polite"></div>
+  </main>
+</div>
+<script src="lib/peerjs.min.js"></script>
+<script src="content.js"></script>
+<script>
+(function () {
+  const TW = window.TW, list = document.getElementById("list"), verdict = document.getElementById("verdict");
+  const R = {};
+  function row(id, title) { const li = document.createElement("li"); li.className = "run"; li.id = "r-" + id; li.innerHTML = `<span class="st">…</span><span><b>${title}</b><small>Checking…</small></span>`; list.appendChild(li); }
+  function set(id, ok, note) { R[id] = ok; const li = document.getElementById("r-" + id); li.className = ok ? "ok" : "bad"; li.querySelector(".st").textContent = ok ? "✓" : "✕"; li.querySelector("small").textContent = note; }
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  function gather(servers, policy, want, ms = 8000) {
+    return new Promise((res) => {
+      let pc; try { pc = new RTCPeerConnection({ iceServers: servers, iceTransportPolicy: policy }); } catch (e) { return res(false); }
+      let done = false; const end = (v) => { if (done) return; done = true; try { pc.close(); } catch (e) {} res(v); };
+      pc.createDataChannel("x");
+      pc.onicecandidate = (e) => { if (e.candidate && e.candidate.candidate.includes("typ " + want)) end(true); if (!e.candidate) end(false); };
+      pc.createOffer().then((o) => pc.setLocalDescription(o)).catch(() => end(false));
+      setTimeout(() => end(false), ms);
+    });
+  }
+  function openPeer(config, ms = 10000) {
+    return new Promise((res) => {
+      const p = new Peer({ debug: 0, config }); let done = false;
+      const end = (v, why) => { if (done) return; done = true; res({ ok: v, peer: p, why }); };
+      p.on("open", () => end(true)); p.on("error", (e) => end(false, e.type));
+      setTimeout(() => end(false, "timeout"), ms);
+    });
+  }
+
+  async function run() {
+    document.getElementById("go").disabled = true; list.innerHTML = ""; verdict.classList.add("hidden");
+    row("ver", "Game version"); set("ver", true, `${TW.BUILD} · relay ${TW.hasRelay ? "configured" : "NOT configured"} · ${navigator.onLine ? "online" : "offline"}`);
+    if (!TW.hasRelay) set("ver", false, `${TW.BUILD}: no relay in content.js, so this is an old copy. Upload the new files and reload.`);
+
+    row("srv", "1. Reach the game server (PeerJS)");
+    const cfg = await TW.ice();
+    const A = await openPeer(cfg);
+    set("srv", A.ok, A.ok ? "Connected to 0.peerjs.com." : `Could not reach 0.peerjs.com (${A.why}). The network blocks the game server.`);
+
+    row("stun", "2. Find this phone's public address (STUN)");
+    const stun = await gather(TW.STUN, "all", "srflx");
+    set("stun", stun, stun ? "Works." : "Blocked. Direct links will not work on this network, so the relay is needed.");
+
+    const urls = TW.TURN.map((t) => t.urls);
+    const labels = ["Relay, UDP port 80", "Relay, TCP port 80", "Relay, UDP port 443", "Relay, secure TCP port 443"];
+    for (let i = 0; i < TW.TURN.length; i++) {
+      row("t" + i, `3.${i + 1} ${labels[i] || urls[i]}`);
+      const ok = await gather([TW.TURN[i]], "relay", "relay");
+      set("t" + i, ok, ok ? "Works." : "Blocked or failed.");
+    }
+
+    row("loop", "4. Send a message through the relay, end to end");
+    let loopOk = false, why = "";
+    if (A.ok) {
+      const B = await openPeer(Object.assign({}, cfg, { iceTransportPolicy: "relay" }));
+      if (B.ok) {
+        loopOk = await new Promise((res) => {
+          const t = setTimeout(() => res(false), 15000);
+          A.peer.on("connection", (c) => c.on("data", (d) => { if (d === "ping") c.send("pong"); }));
+          const c = B.peer.connect(A.peer.id, { reliable: true });
+          c.on("open", () => c.send("ping"));
+          c.on("data", (d) => { if (d === "pong") { clearTimeout(t); res(true); } });
+          c.on("error", () => { clearTimeout(t); res(false); });
+        });
+        why = loopOk ? "A message went out and came back through the relay." : "The relay link did not open within 15 seconds.";
+        B.peer.destroy();
+      } else why = "Could not open a second connection to the game server.";
+      A.peer.destroy();
+    } else why = "Skipped because step 1 failed.";
+    set("loop", loopOk, why);
+
+    let v;
+    if (!TW.hasRelay) v = "This page is an old copy of the game. Upload the new content.js to GitHub, wait two minutes, then reload with a cache refresh.";
+    else if (!R.srv) v = "<b>The network blocks the game server itself.</b> The relay cannot help here. Use mobile data (laptop on a phone hotspot, players on mobile data) or hands mode.";
+    else if (loopOk) v = "<b>This network can run the game through the relay.</b> If phones still get stuck in class, check that the laptop is on a network that also passes this check.";
+    else v = "<b>The game server works, but the relay is blocked or failing on this network.</b> Send a screenshot of this page so we can see which ports are blocked.";
+    verdict.innerHTML = v; verdict.classList.remove("hidden");
+    document.getElementById("go").disabled = false; document.getElementById("go").textContent = "Run the check again";
+  }
+  document.getElementById("go").onclick = run;
+})();
+</script>
+</body>
+</html>
